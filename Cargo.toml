@@ -1,0 +1,15 @@
+[package]
+name = "trimsess"
+version = "0.1.0"
+edition = "2024"
+description = "Safely trim oversized Codex session transcripts"
+repository = "https://github.com/mudake-rs/trimsess"
+license = "MIT OR Apache-2.0"
+exclude = ["AGENTS.md", "msi.md"]
+
+[dependencies]
+clap = { version = "4.5.42", features = ["derive"] }
+rustix = { version = "1.1.3", features = ["fs", "process"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.142", features = ["raw_value"] }
+zstd = "0.13.3"

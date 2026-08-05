@@ -1,0 +1,9 @@
+/target/
+/.codex/
+/.rtm/
+*.jsonl
+*.jsonl.zst
+*.zst
+.trimsess-*.tmp
+AGENTS.md
+msi.md
