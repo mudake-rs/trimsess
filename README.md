@@ -129,9 +129,9 @@ After the process exits, trimsess reopens and rescans the complete transcript
 so Codex shutdown records are included. If the invoking Codex session owns the
 file, `--force` can stop the caller before it receives the final report.
 
-A privilege-transitioned process can hide both its identity and file
-descriptors from `/proc`. Such a PID is reported in `uninspectable_pids` and is
-never signaled. Stop remote transfers or other hidden processes that could
+A same-user process can have descriptors hidden by `/proc` permissions. Such a
+PID is reported in `uninspectable_pids`, does not by itself block trimming, and
+is never signaled. Stop remote transfers or other hidden processes that could
 write the transcript before trimming; a post-rename append through the old
 inode will not appear in the installed file.
 

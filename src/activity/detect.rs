@@ -2,14 +2,14 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use rustix::process::geteuid;
 
 use super::procfs::{
-    arguments_match, fd_directory_has_different_owner, is_codex_process, parse_pid,
-    process_holds_inode, read_process_state,
+    arguments_match, is_codex_process, parse_pid, process_holds_inode, read_process_state,
 };
 use super::{Activity, Holder};
 use crate::codex::Fingerprint;
@@ -63,36 +63,33 @@ pub fn detect(
         let is_codex = is_codex_process(&proc_path);
         let holds_fd = match process_holds_inode(&proc_path, fingerprint) {
             Ok(holds_fd) => holds_fd,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(_)
-                if read_process_state(&proc_path).is_none_or(
-                    |(current_state, current_start)| {
-                        current_state == b'Z' || current_start != start_time
-                    },
-                ) =>
-            {
-                false
-            }
-            Err(error)
-                if error.kind() == std::io::ErrorKind::PermissionDenied
-                    && fd_directory_has_different_owner(&proc_path, user_id) =>
-            {
-                uninspectable.insert(pid);
-                false
-            }
             Err(error) => {
-                return Err(Error::for_path(
-                    ErrorKind::Active,
-                    path,
-                    format!(
-                        concat!(
-                            "cannot inspect open descriptors of same-user pid {pid}: {error}; ",
-                            "stop that process or run where its descriptors are visible"
-                        ),
-                        pid = pid,
-                        error = error
-                    ),
-                ));
+                let process_unchanged =
+                    read_process_state(&proc_path).is_some_and(|(current_state, current_start)| {
+                        current_state != b'Z' && current_start == start_time
+                    });
+                match descriptor_error_policy(error.kind(), process_unchanged) {
+                    DescriptorErrorPolicy::ProcessGone => false,
+                    DescriptorErrorPolicy::Uninspectable => {
+                        uninspectable.insert(pid);
+                        false
+                    }
+                    DescriptorErrorPolicy::Fatal => {
+                        return Err(Error::for_path(
+                            ErrorKind::Active,
+                            path,
+                            format!(
+                                concat!(
+                                    "cannot inspect open descriptors of same-user pid ",
+                                    "{pid}: {error}; stop that process or run where its ",
+                                    "descriptors are visible"
+                                ),
+                                pid = pid,
+                                error = error
+                            ),
+                        ));
+                    }
+                }
             }
         };
         if holds_fd {
@@ -115,4 +112,53 @@ pub fn detect(
         argument_only_pids: argument_only.into_iter().collect(),
         uninspectable_pids: uninspectable.into_iter().collect(),
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DescriptorErrorPolicy {
+    ProcessGone,
+    Uninspectable,
+    Fatal,
+}
+
+// Permission denial is common for unrelated user services. It cannot prove a
+// writer, so report the stable process without authorizing signals.
+fn descriptor_error_policy(
+    error_kind: io::ErrorKind,
+    process_unchanged: bool,
+) -> DescriptorErrorPolicy {
+    if error_kind == io::ErrorKind::NotFound || !process_unchanged {
+        DescriptorErrorPolicy::ProcessGone
+    } else if error_kind == io::ErrorKind::PermissionDenied {
+        DescriptorErrorPolicy::Uninspectable
+    } else {
+        DescriptorErrorPolicy::Fatal
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::{DescriptorErrorPolicy, descriptor_error_policy};
+
+    #[test]
+    fn stable_permission_denial_is_reported_without_blocking() {
+        assert_eq!(
+            descriptor_error_policy(io::ErrorKind::PermissionDenied, true),
+            DescriptorErrorPolicy::Uninspectable
+        );
+        assert_eq!(
+            descriptor_error_policy(io::ErrorKind::PermissionDenied, false),
+            DescriptorErrorPolicy::ProcessGone
+        );
+    }
+
+    #[test]
+    fn unexpected_descriptor_errors_still_fail_closed() {
+        assert_eq!(
+            descriptor_error_policy(io::ErrorKind::InvalidData, true),
+            DescriptorErrorPolicy::Fatal
+        );
+    }
 }

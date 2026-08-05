@@ -80,7 +80,7 @@ pub fn write_report(report: &OperationReport, mode: OutputMode) -> io::Result<()
     if !report.uninspectable_pids.is_empty() {
         writeln!(
             output,
-            "privilege-transitioned pids with hidden identity/fds: {} (full list in --json)",
+            "pids with hidden descriptors: {} (full list in --json)",
             report.uninspectable_pids.len()
         )?;
     }

@@ -45,12 +45,6 @@ pub(super) fn is_codex_process(proc_path: &Path) -> bool {
         .is_some_and(|name| codex_name(&name))
 }
 
-// A root-owned fd directory on a same-user process is Linux's observable sign
-// of a privilege transition, not a transient procfs read failure.
-pub(super) fn fd_directory_has_different_owner(proc_path: &Path, user_id: u32) -> bool {
-    fs::metadata(proc_path.join("fd")).is_ok_and(|metadata| metadata.uid() != user_id)
-}
-
 fn codex_name(name: &[u8]) -> bool {
     name == b"codex"
 }
@@ -98,10 +92,10 @@ pub(super) fn holder_still_matches_process(holder: &Holder) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::{MetadataExt, symlink};
+    use std::os::unix::fs::symlink;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use super::{codex_name, contains, fd_directory_has_different_owner, is_codex_process};
+    use super::{codex_name, contains, is_codex_process};
 
     static NEXT_PROC: AtomicU64 = AtomicU64::new(0);
 
@@ -117,28 +111,6 @@ mod tests {
         assert!(codex_name(b"codex"));
         assert!(!codex_name(b"codex-helper"));
         assert!(!codex_name(b"codex-code-mode-host"));
-    }
-
-    #[test]
-    fn fd_owner_difference_identifies_privilege_transition() {
-        let sequence = NEXT_PROC.fetch_add(1, Ordering::Relaxed);
-        let proc_path = std::env::temp_dir().join(format!(
-            "trimsess-procfs-owner-test-{}-{sequence}",
-            std::process::id(),
-        ));
-        fs::create_dir(&proc_path).expect("fake proc directory should be created");
-        fs::create_dir(proc_path.join("fd")).expect("fake fd directory should be created");
-        let owner = fs::metadata(proc_path.join("fd"))
-            .expect("fake fd metadata should exist")
-            .uid();
-
-        assert!(!fd_directory_has_different_owner(&proc_path, owner));
-        assert!(fd_directory_has_different_owner(
-            &proc_path,
-            owner.wrapping_add(1)
-        ));
-
-        fs::remove_dir_all(proc_path).expect("fake proc directory should be removed");
     }
 
     #[test]

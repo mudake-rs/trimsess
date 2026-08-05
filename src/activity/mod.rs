@@ -26,8 +26,8 @@ pub struct Activity {
 }
 
 impl Activity {
-    // Privilege-transitioned processes are reported separately because both
-    // executable identity and descriptor ownership are hidden.
+    // Processes with kernel-hidden descriptors are reported separately and
+    // never become force targets.
     pub const fn is_active(&self) -> bool {
         !self.fd_holders.is_empty() || !self.argument_only_pids.is_empty()
     }

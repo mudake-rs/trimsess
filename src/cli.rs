@@ -15,8 +15,8 @@ followed by a completed user turn with turn context. Tail rollbacks fail closed.
 Unsupported or changed formats fail closed. Stop Codex first, or use\n\
 trim --force to stop only verified Codex processes holding the target inode.\n\
 Verification requires the exact /proc/<pid>/exe basename codex.\n\
-Privilege-transitioned processes with kernel-hidden identity and fds are reported\n\
-but never signaled; stop remote file transfer before trimming.\n\
+Processes whose descriptors are hidden by /proc permissions are reported but\n\
+never signaled; stop remote file transfer before trimming.\n\
 If a hidden process holds the target, post-rename appends are lost from the installed file.\n\
 Each JSONL record is limited to 128 MiB including its line ending.\n\
 Trim writes a zstd backup by default to $XDG_STATE_HOME/trimsess/backups,\n\
@@ -46,8 +46,8 @@ const INSPECT_HELP: &str = "Reads and validates one explicit Codex transcript pa
 signaling processes. Reports the newest compaction boundary, projected trim,\n\
 and active-writer state. Copied legacy forks are supported; paginated,\n\
 reference-backed, rollback-tail, and changed formats fail closed.\n\
-Privilege-transitioned processes with kernel-hidden identity and fds are reported\n\
-but never treated as verified writers.\n\
+Processes whose descriptors are hidden by /proc permissions are reported but\n\
+never treated as verified writers.\n\
 The target must be a non-symlink regular file owned by the current user.\n\
 Each JSONL record is limited to 128 MiB including its line ending.\n\
 \n\
@@ -78,8 +78,8 @@ after five seconds; unflushed Codex work can be lost.\n\
 Verification requires the exact /proc/<pid>/exe basename codex.\n\
 It may stop the Codex session invoking trimsess; use an external supervisor if\n\
 that session must observe the final report.\n\
-Privilege-transitioned processes with kernel-hidden identity and fds are reported\n\
-but never signaled; stop remote file transfer before trimming.\n\
+Processes whose descriptors are hidden by /proc permissions are reported but\n\
+never signaled; stop remote file transfer before trimming.\n\
 If a hidden process holds the target, post-rename appends are lost from the installed file.\n\
 After exit 7, stop Codex and restore the reported zstd backup through a\n\
 separate validated temporary file. --no-backup removes that recovery path.\n\

@@ -221,8 +221,8 @@ impl OperationReport {
 
     /// Report whether a writer was verified by fd or matching Codex arguments.
     ///
-    /// See [`Self::uninspectable_pids`] for privilege-transitioned processes
-    /// whose hidden descriptors cannot contribute to this boolean.
+    /// See [`Self::uninspectable_pids`] for processes whose hidden descriptors
+    /// cannot contribute to this boolean.
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.active
@@ -294,7 +294,7 @@ impl OperationReport {
         &self.argument_only_pids
     }
 
-    /// Return privilege-transitioned process IDs whose identity and fds are hidden.
+    /// Return process IDs whose descriptors could not be inspected.
     #[must_use]
     pub fn uninspectable_pids(&self) -> &[u32] {
         &self.uninspectable_pids
