@@ -31,18 +31,26 @@ pub(super) struct ScanState {
     pub(super) compaction_count: u64,
     pub(super) newest_compaction_record: Option<u64>,
     pub(super) retained_tail_start: Option<u64>,
+    retained_tail_record: Option<u64>,
     metadata_layout: Option<MetadataLayout>,
     newest_compaction_is_complete_base: bool,
-    post_compaction_turn: Option<TailTurn>,
-    has_post_compaction_resume_turn: bool,
+    current_turn: Option<ResumeTurn>,
+    has_retained_resume_turn: bool,
     post_compaction_rollback: Option<u64>,
 }
 
-// Minimal surviving turn state needed to prove resume settings remain in the
-// retained tail.
+#[derive(Clone, Copy)]
+struct TurnStart {
+    offset: u64,
+    record: u64,
+}
+
+// Minimal turn state needed to prove that Codex can reconstruct resume
+// settings from the retained suffix.
 #[derive(Default)]
-struct TailTurn {
+struct ResumeTurn {
     turn_id: Option<String>,
+    start: Option<TurnStart>,
     counts_as_user_turn: bool,
     has_turn_context: bool,
 }
@@ -160,13 +168,26 @@ impl ScanState {
                     ),
                 ));
             }
-            if !self.has_post_compaction_resume_turn {
+            if self.current_turn.is_some() {
                 return Err(Error::for_path(
                     ErrorKind::Unsupported,
                     path,
                     format!(
                         concat!(
-                            "no completed user turn with turn_context follows newest compacted record ",
+                            "incomplete turn tail follows newest compacted record ",
+                            "{boundary}; unsupported retention shape"
+                        ),
+                        boundary = boundary
+                    ),
+                ));
+            }
+            if !self.has_retained_resume_turn {
+                return Err(Error::for_path(
+                    ErrorKind::Unsupported,
+                    path,
+                    format!(
+                        concat!(
+                            "no completed user turn with retained turn_context spans or follows newest compacted record ",
                             "{boundary}; unsupported retention shape"
                         ),
                         boundary = boundary
@@ -178,10 +199,14 @@ impl ScanState {
     }
 
     // Project the two byte ranges copied by the rewrite: session metadata and
-    // the newest checkpoint plus its complete tail.
+    // the safe suffix selected around the newest checkpoint.
     fn projected_counts(&self, path: &Path, source_bytes: u64) -> Result<(u64, u64), Error> {
-        match (self.retained_tail_start, self.newest_compaction_record) {
-            (Some(tail_start), Some(boundary)) => {
+        match (
+            self.retained_tail_start,
+            self.retained_tail_record,
+            self.newest_compaction_record,
+        ) {
+            (Some(tail_start), Some(tail_record), Some(_)) => {
                 let tail_bytes = source_bytes.checked_sub(tail_start).ok_or_else(|| {
                     Error::for_path(
                         ErrorKind::Unsupported,
@@ -198,7 +223,7 @@ impl ScanState {
                 })?;
                 let tail_records = self
                     .record_number
-                    .checked_sub(boundary)
+                    .checked_sub(tail_record)
                     .and_then(|count| count.checked_add(1))
                     .ok_or_else(|| {
                         Error::for_path(
@@ -216,7 +241,7 @@ impl ScanState {
                 })?;
                 Ok((after_bytes, after_records))
             }
-            (None, None) => Ok((source_bytes, self.record_number)),
+            (None, None, None) => Ok((source_bytes, self.record_number)),
             _ => Err(Error::for_path(
                 ErrorKind::Unsupported,
                 path,
@@ -225,37 +250,66 @@ impl ScanState {
         }
     }
 
-    pub(super) fn note_compaction(&mut self, is_complete_base: bool) {
+    pub(super) fn note_compaction(
+        &mut self,
+        is_complete_base: bool,
+        record_start: u64,
+        record_number: u64,
+    ) {
+        // Mid-turn resume reconstruction needs the active turn's start and
+        // user boundary; retaining only the checkpoint would hide its context.
+        let retained_turn_start = self.current_turn.as_ref().and_then(|turn| {
+            if turn.counts_as_user_turn {
+                turn.start
+            } else {
+                None
+            }
+        });
+        let preserves_current_turn = retained_turn_start.is_some();
+        let retained_start = retained_turn_start.unwrap_or(TurnStart {
+            offset: record_start,
+            record: record_number,
+        });
+
+        self.newest_compaction_record = Some(record_number);
+        self.retained_tail_start = Some(retained_start.offset);
+        self.retained_tail_record = Some(retained_start.record);
         self.newest_compaction_is_complete_base = is_complete_base;
-        self.post_compaction_turn = None;
-        self.has_post_compaction_resume_turn = false;
+        if let Some(turn) = &mut self.current_turn {
+            turn.counts_as_user_turn = preserves_current_turn;
+            turn.has_turn_context = false;
+        }
+        self.has_retained_resume_turn = false;
         self.post_compaction_rollback = None;
     }
 
-    pub(super) fn note_turn_started(&mut self, turn_id: &str) {
-        if self.newest_compaction_record.is_some() {
-            self.post_compaction_turn = Some(TailTurn {
-                turn_id: Some(turn_id.to_owned()),
-                ..TailTurn::default()
-            });
-        }
+    pub(super) fn note_turn_started(
+        &mut self,
+        turn_id: &str,
+        record_start: u64,
+        record_number: u64,
+    ) {
+        self.current_turn = Some(ResumeTurn {
+            turn_id: Some(turn_id.to_owned()),
+            start: Some(TurnStart {
+                offset: record_start,
+                record: record_number,
+            }),
+            ..ResumeTurn::default()
+        });
     }
 
     pub(super) fn note_user_boundary(&mut self) {
-        if self.newest_compaction_record.is_some() {
-            self.post_compaction_turn
-                .get_or_insert_with(TailTurn::default)
-                .counts_as_user_turn = true;
-        }
+        self.current_turn
+            .get_or_insert_with(ResumeTurn::default)
+            .counts_as_user_turn = true;
     }
 
     pub(super) fn note_turn_context(&mut self, turn_id: Option<&str>) {
         if self.newest_compaction_record.is_none() {
             return;
         }
-        let turn = self
-            .post_compaction_turn
-            .get_or_insert_with(TailTurn::default);
+        let turn = self.current_turn.get_or_insert_with(ResumeTurn::default);
         if turn_ids_are_compatible(turn.turn_id.as_deref(), turn_id) {
             if turn.turn_id.is_none() {
                 turn.turn_id = turn_id.map(str::to_owned);
@@ -265,23 +319,20 @@ impl ScanState {
     }
 
     pub(super) fn note_turn_complete(&mut self, turn_id: &str) {
-        if self.newest_compaction_record.is_none() {
-            return;
+        if self.newest_compaction_record.is_some()
+            && self.current_turn.as_ref().is_some_and(|turn| {
+                turn_ids_are_compatible(turn.turn_id.as_deref(), Some(turn_id))
+                    && turn.counts_as_user_turn
+                    && turn.has_turn_context
+            })
+        {
+            self.has_retained_resume_turn = true;
         }
-        if self.post_compaction_turn.as_ref().is_some_and(|turn| {
-            turn_ids_are_compatible(turn.turn_id.as_deref(), Some(turn_id))
-                && turn.counts_as_user_turn
-                && turn.has_turn_context
-        }) {
-            self.has_post_compaction_resume_turn = true;
-        }
-        self.post_compaction_turn = None;
+        self.current_turn = None;
     }
 
     pub(super) fn note_turn_aborted(&mut self) {
-        if self.newest_compaction_record.is_some() {
-            self.post_compaction_turn = None;
-        }
+        self.current_turn = None;
     }
 
     pub(super) const fn note_rollback(&mut self, record_number: u64) {

@@ -104,9 +104,7 @@ fn apply_record_policy(
                     "compaction counter overflowed",
                 )
             })?;
-            state.newest_compaction_record = Some(record_number);
-            state.retained_tail_start = Some(record_start);
-            state.note_compaction(compacted.is_complete_base());
+            state.note_compaction(compacted.is_complete_base(), record_start, record_number);
         }
         RecordType::TurnContext => {
             let context: TurnContextPayload<'_> =
@@ -117,7 +115,7 @@ fn apply_record_policy(
         RecordType::EventMessage => {
             let event: Event<'_> =
                 record::parse_payload(envelope.payload, envelope.record_type, record_number, path)?;
-            note_event(state, &event, record_number);
+            note_event(state, &event, record_start, record_number);
         }
         RecordType::ResponseItem => {
             let response: ResponseItem =
@@ -146,9 +144,9 @@ fn apply_record_policy(
     Ok(())
 }
 
-fn note_event(state: &mut ScanState, event: &Event<'_>, record_number: u64) {
+fn note_event(state: &mut ScanState, event: &Event<'_>, record_start: u64, record_number: u64) {
     if let Some(turn_id) = event.turn_started() {
-        state.note_turn_started(turn_id);
+        state.note_turn_started(turn_id, record_start, record_number);
     } else if let Some(turn_id) = event.turn_completed() {
         state.note_turn_complete(turn_id);
     } else if event.is_turn_aborted() {

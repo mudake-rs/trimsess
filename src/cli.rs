@@ -4,14 +4,15 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-const ROOT_HELP: &str = "trimsess preserves the first session_meta record, the newest compacted\n\
-record, and every later record. It removes only older transcript windows.\n\
+const ROOT_HELP: &str = "trimsess preserves the first session_meta record and one safe suffix\n\
+around the newest compacted record. A mid-turn suffix starts at task_started.\n\
 \n\
 The target must be an explicit path to one Codex rollout-*.jsonl file.\n\
 It must be a non-symlink regular file owned by the current user.\n\
 Copied legacy forks are supported; paginated and reference-backed forks fail closed.\n\
-The newest checkpoint must carry replacement history and a window number,\n\
-followed by a completed user turn with turn context. Tail rollbacks fail closed.\n\
+The newest checkpoint must carry replacement history and a window number.\n\
+A user turn spanning or following it must have later turn context and complete.\n\
+Incomplete or rollback tails fail closed.\n\
 Unsupported or changed formats fail closed. Stop Codex first, or use\n\
 trim --force to stop only verified Codex processes holding the target inode.\n\
 Verification requires the exact /proc/<pid>/exe basename codex.\n\
@@ -45,7 +46,7 @@ Repository: https://github.com/mudake-rs/trimsess";
 const INSPECT_HELP: &str = "Reads and validates one explicit Codex transcript path without writing or\n\
 signaling processes. Reports the newest compaction boundary, projected trim,\n\
 and active-writer state. Copied legacy forks are supported; paginated,\n\
-reference-backed, rollback-tail, and changed formats fail closed.\n\
+reference-backed, incomplete-tail, rollback-tail, and changed formats fail closed.\n\
 Processes whose descriptors are hidden by /proc permissions are reported but\n\
 never treated as verified writers.\n\
 The target must be a non-symlink regular file owned by the current user.\n\
@@ -62,14 +63,15 @@ Exit codes: 0 inspected (including active), 2 usage, 3 target, 4 format,\n\
 6 read/stability failure.\n\
 Repository: https://github.com/mudake-rs/trimsess";
 
-const TRIM_HELP: &str = "Preserves the first session_meta, newest compacted record, and later records;\n\
-removes only older windows. Writes a validated compressed backup by default,\n\
+const TRIM_HELP: &str = "Preserves the first session_meta and one safe suffix around the newest\n\
+compacted record; a mid-turn suffix starts at task_started. Writes a validated\n+compressed backup by default,\n\
 builds and validates a same-directory candidate, then atomically replaces the\n\
 explicit transcript.\n\
 The target must be a non-symlink regular file owned by the current user.\n\
 Copied legacy forks are supported; paginated and reference-backed forks fail closed.\n\
-The newest checkpoint must carry replacement history and a window number,\n\
-followed by a completed user turn with turn context. Tail rollbacks fail closed.\n\
+The newest checkpoint must carry replacement history and a window number.\n\
+A user turn spanning or following it must have later turn context and complete.\n\
+Incomplete or rollback tails fail closed.\n\
 The default backup directory is $XDG_STATE_HOME/trimsess/backups, falling back\n\
 to ~/.local/state/trimsess/backups. Unsupported formats fail closed.\n\
 Each JSONL record is limited to 128 MiB including its line ending.\n\

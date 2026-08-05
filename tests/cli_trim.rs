@@ -108,6 +108,56 @@ fn compressed_backup_is_exact() {
 }
 
 #[test]
+fn mid_turn_compaction_retains_turn_boundary_and_creates_exact_backup() {
+    let directory = TestDir::new();
+    let path = directory.rollout();
+    let backup_dir = directory.0.join("backups");
+    let (input, expected) = mid_turn_compaction_transcript(directory.session_id());
+    fs::write(&path, &input).expect("fixture write should succeed");
+
+    let inspection = run(&[
+        "--json",
+        "inspect",
+        path.to_str().expect("test path should be UTF-8"),
+    ]);
+    assert!(
+        inspection.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspection.stderr)
+    );
+    let inspection = json(&inspection);
+    assert_eq!(inspection["status"], "ready");
+    assert_eq!(inspection["after_bytes"], expected.len());
+    assert_eq!(inspection["after_records"], 11);
+
+    let output = run(&[
+        "--json",
+        "trim",
+        "--backup-dir",
+        backup_dir.to_str().expect("test path should be UTF-8"),
+        path.to_str().expect("test path should be UTF-8"),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read(&path).expect("source should be trimmed"), expected);
+
+    let report = json(&output);
+    let backup_path = report["backup_path"]
+        .as_str()
+        .expect("backup path should exist");
+    let backup = File::open(backup_path).expect("backup should be readable");
+    let mut decoder = zstd::stream::read::Decoder::new(backup).expect("backup should decode");
+    let mut restored = Vec::new();
+    decoder
+        .read_to_end(&mut restored)
+        .expect("backup should decode fully");
+    assert_eq!(restored, input);
+}
+
+#[test]
 fn no_compaction_is_a_no_op() {
     let directory = TestDir::new();
     let path = directory.rollout();

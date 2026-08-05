@@ -34,13 +34,21 @@ fn incomplete_checkpoint_and_rollback_tail_are_rejected() {
         assert_unsupported_unchanged(&path, &input);
     }
 
-    let mut mid_turn_compaction = metadata(directory.session_id());
-    mid_turn_compaction.extend(event("task_started", ",\"turn_id\":\"turn-1\""));
-    mid_turn_compaction.extend(event("user_message", ",\"message\":\"synthetic\""));
-    mid_turn_compaction.extend(compacted("synthetic", 1));
-    mid_turn_compaction.extend(turn_context("turn-1"));
-    mid_turn_compaction.extend(event("task_complete", ",\"turn_id\":\"turn-1\""));
-    assert_unsupported_unchanged(&path, &mid_turn_compaction);
+    let mut missing_post_compaction_context = metadata(directory.session_id());
+    missing_post_compaction_context.extend(event("task_started", ",\"turn_id\":\"turn-1\""));
+    missing_post_compaction_context.extend(event("user_message", ",\"message\":\"synthetic\""));
+    missing_post_compaction_context.extend(turn_context("turn-1"));
+    missing_post_compaction_context.extend(compacted("synthetic", 1));
+    missing_post_compaction_context.extend(event("task_complete", ",\"turn_id\":\"turn-1\""));
+    assert_unsupported_unchanged(&path, &missing_post_compaction_context);
+
+    let mut incomplete_mid_turn_tail = metadata(directory.session_id());
+    incomplete_mid_turn_tail.extend(event("task_started", ",\"turn_id\":\"turn-1\""));
+    incomplete_mid_turn_tail.extend(event("user_message", ",\"message\":\"synthetic\""));
+    incomplete_mid_turn_tail.extend(compacted("synthetic", 1));
+    incomplete_mid_turn_tail.extend(turn_context("turn-1"));
+    incomplete_mid_turn_tail.extend(event("context_compacted", ""));
+    assert_unsupported_unchanged(&path, &incomplete_mid_turn_tail);
 
     let mut rollback = metadata(directory.session_id());
     rollback.extend(compacted("synthetic", 1));

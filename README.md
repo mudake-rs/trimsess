@@ -22,8 +22,8 @@ Rejected without modifying the source:
 
 - paginated or reference-backed forks using `history_base`;
 - child and sub-agent transcripts;
-- non-legacy history, rollback tails, malformed JSON, and unknown record
-  layouts;
+- non-legacy history, rollback or incomplete turn tails, malformed JSON, and
+  unknown record layouts;
 - Claude and other agent formats.
 
 The format contract is verified against Codex CLI `0.146.0`, source tag
@@ -95,16 +95,18 @@ Run `trimsess <COMMAND> --help` for the complete contract.
 
 ## Retention
 
-The installed transcript contains exactly:
+The installed transcript contains the first canonical `session_meta` and one
+continuous suffix around the newest complete `compacted` record:
 
-1. the first canonical `session_meta` record;
-2. the newest complete `compacted` record;
-3. every record after that compaction.
+- normally, the suffix starts at that `compacted` record;
+- if compaction occurred during an active user turn, the suffix starts at that
+  turn's `task_started` record so Codex can reconstruct the turn boundary.
 
 Retained records and unknown fields remain byte-for-byte unchanged. The newest
 compaction must contain a decodable `replacement_history` and
-`window_number`, followed by a completed user turn with valid `turn_context`.
-A later rollback is unsupported.
+`window_number`. A user turn spanning or following it must contain a valid
+post-compaction `turn_context` and a matching `task_complete`. A later rollback
+is unsupported.
 
 A valid transcript without compaction is a safe no-op. A transcript already in
 the minimal form is also a no-op.

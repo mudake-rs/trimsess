@@ -98,3 +98,28 @@ pub fn valid_transcript(session_id: &str) -> (Vec<u8>, Vec<u8>) {
     }
     (input, expected)
 }
+
+pub fn mid_turn_compaction_transcript(session_id: &str) -> (Vec<u8>, Vec<u8>) {
+    let meta = metadata(session_id);
+    let retained_turn = [
+        event("task_started", ",\"turn_id\":\"turn-mid\""),
+        event("user_message", ",\"message\":\"synthetic user\""),
+        response_message("assistant", "synthetic pre-compaction response"),
+        compacted("synthetic mid-turn checkpoint", 4),
+        record("world_state", "{\"full\":true,\"state\":{}}"),
+        turn_context("turn-mid"),
+        event("token_count", ",\"info\":null"),
+        event("context_compacted", ""),
+        response_message("assistant", "synthetic post-compaction response"),
+        event("task_complete", ",\"turn_id\":\"turn-mid\""),
+    ];
+    let mut input = meta.clone();
+    input.extend(event(
+        "agent_message",
+        ",\"message\":\"synthetic old data\"",
+    ));
+    append_records(&mut input, retained_turn.clone());
+    let mut expected = meta;
+    append_records(&mut expected, retained_turn);
+    (input, expected)
+}
