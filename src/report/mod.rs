@@ -276,7 +276,7 @@ impl OperationReport {
         self.newest_compaction_record
     }
 
-    /// Return the validated compressed backup path when one was created.
+    /// Return the durable checksummed backup path when one was created.
     #[must_use]
     pub fn backup_path(&self) -> Option<&std::path::Path> {
         self.backup_path.as_deref()

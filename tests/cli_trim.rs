@@ -74,7 +74,7 @@ fn dry_run_reports_plan_without_files_or_signals() {
 }
 
 #[test]
-fn compressed_backup_is_exact() {
+fn compressed_backup_is_checksummed_and_restorable() {
     let directory = TestDir::new();
     let path = directory.rollout();
     let backup_dir = directory.0.join("backups");
@@ -98,6 +98,7 @@ fn compressed_backup_is_exact() {
     let backup_path = report["backup_path"]
         .as_str()
         .expect("backup path should exist");
+    assert_checksumming_zstd_frame(backup_path);
     let backup = File::open(backup_path).expect("backup should be readable");
     let mut decoder = zstd::stream::read::Decoder::new(backup).expect("backup should decode");
     let mut restored = Vec::new();
@@ -108,7 +109,7 @@ fn compressed_backup_is_exact() {
 }
 
 #[test]
-fn mid_turn_compaction_retains_turn_boundary_and_creates_exact_backup() {
+fn mid_turn_compaction_retains_turn_boundary_and_creates_restorable_backup() {
     let directory = TestDir::new();
     let path = directory.rollout();
     let backup_dir = directory.0.join("backups");
@@ -148,6 +149,7 @@ fn mid_turn_compaction_retains_turn_boundary_and_creates_exact_backup() {
     let backup_path = report["backup_path"]
         .as_str()
         .expect("backup path should exist");
+    assert_checksumming_zstd_frame(backup_path);
     let backup = File::open(backup_path).expect("backup should be readable");
     let mut decoder = zstd::stream::read::Decoder::new(backup).expect("backup should decode");
     let mut restored = Vec::new();
@@ -155,6 +157,28 @@ fn mid_turn_compaction_retains_turn_boundary_and_creates_exact_backup() {
         .read_to_end(&mut restored)
         .expect("backup should decode fully");
     assert_eq!(restored, input);
+}
+
+fn assert_checksumming_zstd_frame(path: &str) {
+    const ZSTD_MAGIC: [u8; 4] = 0xFD2F_B528_u32.to_le_bytes();
+    const CHECKSUM_FLAG: u8 = 1 << 2;
+
+    let mut frame = fs::read(path).expect("backup frame should be readable");
+    assert!(frame.len() >= 5, "backup should contain a zstd header");
+    assert_eq!(&frame[..4], &ZSTD_MAGIC);
+    assert_ne!(frame[4] & CHECKSUM_FLAG, 0, "checksum flag should be set");
+
+    let checksum_trailer_byte = frame
+        .last_mut()
+        .expect("checksummed zstd frame should not be empty");
+    *checksum_trailer_byte ^= 1;
+    let mut decoder =
+        zstd::stream::read::Decoder::new(frame.as_slice()).expect("frame header should decode");
+    let mut discarded = Vec::new();
+    assert!(
+        decoder.read_to_end(&mut discarded).is_err(),
+        "checksum trailer corruption should be rejected"
+    );
 }
 
 #[test]

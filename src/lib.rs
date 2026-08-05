@@ -157,7 +157,7 @@ impl Error {
         self.process_stopped
     }
 
-    /// Return the validated recovery backup path when one was created.
+    /// Return the durable checksummed recovery backup path when one was created.
     #[must_use]
     pub fn backup_path(&self) -> Option<&Path> {
         self.backup_path.as_deref()

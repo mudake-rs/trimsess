@@ -139,9 +139,12 @@ inode will not appear in the installed file.
 
 ## Backup and replacement
 
-By default, trimsess creates and validates an exact zstd-compressed backup in
+By default, trimsess creates a zstd-compressed backup with a content checksum in
 `$XDG_STATE_HOME/trimsess/backups`, or
 `~/.local/state/trimsess/backups` when `XDG_STATE_HOME` is unset.
+The frame and its file and directory entries are synced before replacement.
+The trim path does not decompress or reread the backup; zstd verifies the
+content checksum when the backup is restored.
 
 The candidate transcript is written beside the source, validated completely,
 given the source ownership and mode, flushed, and installed with one atomic

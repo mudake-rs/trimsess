@@ -1,4 +1,4 @@
-//! Validated backup creation and crash-safe transcript replacement.
+//! Durable backup creation and crash-safe transcript replacement.
 
 use std::fs::{self, File};
 use std::io;

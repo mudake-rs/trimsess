@@ -20,7 +20,7 @@ Processes whose descriptors are hidden by /proc permissions are reported but\n\
 never signaled; stop remote file transfer before trimming.\n\
 If a hidden process holds the target, post-rename appends are lost from the installed file.\n\
 Each JSONL record is limited to 128 MiB including its line ending.\n\
-Trim writes a zstd backup by default to $XDG_STATE_HOME/trimsess/backups,\n\
+Trim writes a checksummed zstd backup by default to $XDG_STATE_HOME/trimsess/backups,\n\
 falling back to ~/.local/state/trimsess/backups.\n\
 --force can discard unflushed Codex work.\n\
 It can also stop the Codex session invoking trimsess; use an external supervisor\n\
@@ -64,7 +64,8 @@ Exit codes: 0 inspected (including active), 2 usage, 3 target, 4 format,\n\
 Repository: https://github.com/mudake-rs/trimsess";
 
 const TRIM_HELP: &str = "Preserves the first session_meta and one safe suffix around the newest\n\
-compacted record; a mid-turn suffix starts at task_started. Writes a validated\n+compressed backup by default,\n\
+compacted record; a mid-turn suffix starts at task_started. Writes a checksummed\n\
+compressed backup by default,\n\
 builds and validates a same-directory candidate, then atomically replaces the\n\
 explicit transcript.\n\
 The target must be a non-symlink regular file owned by the current user.\n\

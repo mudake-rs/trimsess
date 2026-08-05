@@ -1,7 +1,7 @@
-//! Creation and byte-for-byte validation of compressed recovery backups.
+//! Creation and durable storage of checksummed recovery backups.
 
 use std::fs::{self, File};
-use std::io::{self, BufReader, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,10 +10,9 @@ use super::exclusive;
 use crate::codex::{self, Inspection};
 use crate::{Error, ErrorKind};
 
-mod compare;
 mod directory;
 
-// A backup becomes reportable only after sync and exact decompression validation.
+// A backup becomes reportable only after its frame, file, and directory are durable.
 pub(super) fn create(
     inspection: &Inspection,
     requested_backup_dir: Option<&Path>,
@@ -64,20 +63,36 @@ pub(super) fn create(
             format!("cannot initialize zstd backup: {error}"),
         )
     })?;
-    io::copy(&mut source, &mut encoder).map_err(|error| {
+    encoder.include_checksum(true).map_err(|error| {
+        Error::for_path(
+            ErrorKind::Unchanged,
+            &inspection.path,
+            format!("cannot enable zstd backup checksum: {error}; source not replaced"),
+        )
+    })?;
+    encoder
+        .set_pledged_src_size(Some(inspection.fingerprint.len))
+        .map_err(|error| {
+            Error::for_path(
+                ErrorKind::Unchanged,
+                &inspection.path,
+                format!("cannot set zstd backup source size: {error}; source not replaced"),
+            )
+        })?;
+    let copied = io::copy(&mut source, &mut encoder).map_err(|error| {
         Error::for_path(
             ErrorKind::Unchanged,
             &inspection.path,
             format!("backup write failed: {error}; source not replaced"),
         )
     })?;
-    encoder.flush().map_err(|error| {
-        Error::for_path(
+    if copied != inspection.fingerprint.len {
+        return Err(Error::for_path(
             ErrorKind::Unchanged,
             &inspection.path,
-            format!("backup flush failed: {error}; source not replaced"),
-        )
-    })?;
+            "backup copied an unexpected source byte count; source not replaced",
+        ));
+    }
     let backup_file = encoder.finish().map_err(|error| {
         Error::for_path(
             ErrorKind::Unchanged,
@@ -92,7 +107,6 @@ pub(super) fn create(
             format!("backup sync failed: {error}; source not replaced"),
         )
     })?;
-    validate(inspection, backup.path())?;
     codex::ensure_path_stable(&inspection.path, &inspection.fingerprint)?;
     let backup_directory = File::open(&directory).map_err(|error| {
         Error::for_path(
@@ -111,37 +125,7 @@ pub(super) fn create(
     Ok(backup)
 }
 
-fn validate(inspection: &Inspection, backup_path: &Path) -> Result<(), Error> {
-    let backup = File::open(backup_path).map_err(|error| {
-        Error::for_path(
-            ErrorKind::Unchanged,
-            &inspection.path,
-            format!("cannot reopen backup for validation: {error}"),
-        )
-    })?;
-    let decoded = zstd::stream::read::Decoder::new(BufReader::new(backup)).map_err(|error| {
-        Error::for_path(
-            ErrorKind::Unchanged,
-            &inspection.path,
-            format!("cannot decode backup for validation: {error}"),
-        )
-    })?;
-    let source = File::open(&inspection.path).map_err(|error| {
-        Error::for_path(
-            ErrorKind::Unchanged,
-            &inspection.path,
-            format!("cannot reopen source for backup validation: {error}"),
-        )
-    })?;
-    ensure_open_file_matches(&source, &inspection.fingerprint, &inspection.path)?;
-    compare::readers(
-        BufReader::new(source),
-        BufReader::new(decoded),
-        &inspection.path,
-    )
-}
-
-// A validated backup remains provisional until the transcript commit point.
+// A durable backup remains provisional until the transcript commit point.
 pub(super) struct Backup {
     path: PathBuf,
     preserve: bool,
