@@ -50,11 +50,43 @@ fn incomplete_checkpoint_and_rollback_tail_are_rejected() {
     incomplete_mid_turn_tail.extend(event("context_compacted", ""));
     assert_unsupported_unchanged(&path, &incomplete_mid_turn_tail);
 
+    let mut later_incomplete_turn = metadata(directory.session_id());
+    later_incomplete_turn.extend(compacted("synthetic", 1));
+    append_records(&mut later_incomplete_turn, completed_user_turn("turn-1"));
+    later_incomplete_turn.extend(event("task_started", ",\"turn_id\":\"turn-2\""));
+    assert_unsupported_unchanged(&path, &later_incomplete_turn);
+
     let mut rollback = metadata(directory.session_id());
     rollback.extend(compacted("synthetic", 1));
     append_records(&mut rollback, completed_user_turn("turn-1"));
     rollback.extend(event("thread_rolled_back", ",\"num_turns\":1"));
     assert_unsupported_unchanged(&path, &rollback);
+}
+
+#[test]
+fn retained_turn_requires_its_start_and_contains_no_rollback() {
+    let directory = TestDir::new();
+    let path = directory.rollout();
+
+    let mut omitted_turn_start = metadata(directory.session_id());
+    omitted_turn_start.extend(event("task_started", ",\"turn_id\":\"turn-1\""));
+    omitted_turn_start.extend(compacted("synthetic", 1));
+    omitted_turn_start.extend(record(
+        "inter_agent_communication",
+        "{\"author\":\"/root/worker\",\"recipient\":\"/root\",\"other_recipients\":[],\"content\":\"synthetic\",\"trigger_turn\":true}",
+    ));
+    omitted_turn_start.extend(turn_context("turn-1"));
+    omitted_turn_start.extend(event("task_complete", ",\"turn_id\":\"turn-1\""));
+    assert_unsupported_unchanged(&path, &omitted_turn_start);
+
+    let mut rollback_before_compaction = metadata(directory.session_id());
+    rollback_before_compaction.extend(event("task_started", ",\"turn_id\":\"turn-1\""));
+    rollback_before_compaction.extend(event("user_message", ",\"message\":\"synthetic\""));
+    rollback_before_compaction.extend(event("thread_rolled_back", ",\"num_turns\":1"));
+    rollback_before_compaction.extend(compacted("synthetic", 1));
+    rollback_before_compaction.extend(turn_context("turn-1"));
+    rollback_before_compaction.extend(event("task_complete", ",\"turn_id\":\"turn-1\""));
+    assert_unsupported_unchanged(&path, &rollback_before_compaction);
 }
 
 #[test]

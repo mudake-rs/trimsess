@@ -36,7 +36,7 @@ pub(super) struct ScanState {
     newest_compaction_is_complete_base: bool,
     current_turn: Option<ResumeTurn>,
     has_retained_resume_turn: bool,
-    post_compaction_rollback: Option<u64>,
+    latest_rollback: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -154,16 +154,22 @@ impl ScanState {
                     ),
                 ));
             }
-            if let Some(record) = self.post_compaction_rollback {
+            if let Some((record, tail_start)) = self
+                .latest_rollback
+                .zip(self.retained_tail_record)
+                .filter(|(record, start)| record >= start)
+            {
                 return Err(Error::for_path(
                     ErrorKind::Unsupported,
                     path,
                     format!(
                         concat!(
-                            "thread rollback record {record} follows newest compacted record ",
+                            "thread rollback record {record} lies in the retained suffix ",
+                            "starting at record {tail_start}; newest compacted record is ",
                             "{boundary}; unsupported retention shape"
                         ),
                         record = record,
+                        tail_start = tail_start,
                         boundary = boundary
                     ),
                 ));
@@ -187,7 +193,7 @@ impl ScanState {
                     path,
                     format!(
                         concat!(
-                            "no completed user turn with retained turn_context spans or follows newest compacted record ",
+                            "no completed user turn with retained task_started and post-compaction turn_context spans or follows newest compacted record ",
                             "{boundary}; unsupported retention shape"
                         ),
                         boundary = boundary
@@ -265,7 +271,6 @@ impl ScanState {
                 None
             }
         });
-        let preserves_current_turn = retained_turn_start.is_some();
         let retained_start = retained_turn_start.unwrap_or(TurnStart {
             offset: record_start,
             record: record_number,
@@ -276,11 +281,11 @@ impl ScanState {
         self.retained_tail_record = Some(retained_start.record);
         self.newest_compaction_is_complete_base = is_complete_base;
         if let Some(turn) = &mut self.current_turn {
-            turn.counts_as_user_turn = preserves_current_turn;
+            // Resume settings must come from a context persisted after the
+            // newest checkpoint, even when the whole turn is retained.
             turn.has_turn_context = false;
         }
         self.has_retained_resume_turn = false;
-        self.post_compaction_rollback = None;
     }
 
     pub(super) fn note_turn_started(
@@ -319,9 +324,13 @@ impl ScanState {
     }
 
     pub(super) fn note_turn_complete(&mut self, turn_id: &str) {
+        let retained_tail_record = self.retained_tail_record;
         if self.newest_compaction_record.is_some()
             && self.current_turn.as_ref().is_some_and(|turn| {
                 turn_ids_are_compatible(turn.turn_id.as_deref(), Some(turn_id))
+                    && turn.start.is_some_and(|start| {
+                        retained_tail_record.is_some_and(|retained| start.record >= retained)
+                    })
                     && turn.counts_as_user_turn
                     && turn.has_turn_context
             })
@@ -336,9 +345,7 @@ impl ScanState {
     }
 
     pub(super) const fn note_rollback(&mut self, record_number: u64) {
-        if self.newest_compaction_record.is_some() {
-            self.post_compaction_rollback = Some(record_number);
-        }
+        self.latest_rollback = Some(record_number);
     }
 }
 

@@ -158,6 +158,69 @@ fn mid_turn_compaction_retains_turn_boundary_and_creates_exact_backup() {
 }
 
 #[test]
+fn newest_of_multiple_mid_turn_compactions_keeps_one_continuous_turn() {
+    let directory = TestDir::new();
+    let path = directory.rollout();
+    let meta = metadata(directory.session_id());
+    let retained_turn = [
+        event("task_started", ",\"turn_id\":\"turn-mid\""),
+        event("user_message", ",\"message\":\"synthetic user\""),
+        compacted("synthetic first checkpoint", 3),
+        turn_context("turn-mid"),
+        event("context_compacted", ""),
+        response_message("assistant", "synthetic middle response"),
+        compacted("synthetic newest checkpoint", 4),
+        record("world_state", "{\"full\":true,\"state\":{}}"),
+        turn_context("turn-mid"),
+        event("context_compacted", ""),
+        event("task_complete", ",\"turn_id\":\"turn-mid\""),
+    ];
+    let mut input = meta.clone();
+    input.extend(event(
+        "agent_message",
+        ",\"message\":\"synthetic old data\"",
+    ));
+    append_records(&mut input, retained_turn.clone());
+    let mut expected = meta;
+    append_records(&mut expected, retained_turn);
+    fs::write(&path, input).expect("fixture write should succeed");
+
+    let output = run(&[
+        "--json",
+        "trim",
+        "--no-backup",
+        path.to_str().expect("test path should be UTF-8"),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(json(&output)["status"], "trimmed");
+    assert_eq!(fs::read(&path).expect("source should be trimmed"), expected);
+}
+
+#[test]
+fn mid_turn_suffix_at_record_two_is_already_minimal() {
+    let directory = TestDir::new();
+    let path = directory.rollout();
+    let (_, expected) = mid_turn_compaction_transcript(directory.session_id());
+    fs::write(&path, &expected).expect("fixture write should succeed");
+
+    let output = run(&[
+        "--json",
+        "trim",
+        path.to_str().expect("test path should be UTF-8"),
+    ]);
+
+    assert!(output.status.success());
+    assert_eq!(json(&output)["status"], "already_minimal");
+    assert_eq!(fs::read(&path).expect("source should remain"), expected);
+    assert!(!directory.0.join("backups").exists());
+}
+
+#[test]
 fn no_compaction_is_a_no_op() {
     let directory = TestDir::new();
     let path = directory.rollout();
