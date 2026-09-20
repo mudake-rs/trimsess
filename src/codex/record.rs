@@ -52,6 +52,7 @@ pub(super) enum RecordType {
     TurnContext,
     Compacted,
     WorldState,
+    TokenUsageRecord,
     InterAgentCommunication,
     InterAgentCommunicationMetadata,
 }
@@ -65,6 +66,7 @@ impl RecordType {
             Self::TurnContext => "turn_context",
             Self::Compacted => "compacted",
             Self::WorldState => "world_state",
+            Self::TokenUsageRecord => "token_usage_record",
             Self::InterAgentCommunication => "inter_agent_communication",
             Self::InterAgentCommunicationMetadata => "inter_agent_communication_metadata",
         }
@@ -227,6 +229,7 @@ fn parse_record_type(
         "turn_context" => Ok(RecordType::TurnContext),
         "compacted" => Ok(RecordType::Compacted),
         "world_state" => Ok(RecordType::WorldState),
+        "token_usage_record" => Ok(RecordType::TokenUsageRecord),
         "inter_agent_communication" => Ok(RecordType::InterAgentCommunication),
         "inter_agent_communication_metadata" => Ok(RecordType::InterAgentCommunicationMetadata),
         _ => Err(Error::for_path(

@@ -41,6 +41,46 @@ fn trims_to_newest_boundary_and_preserves_retained_bytes() {
 }
 
 #[test]
+fn token_usage_records_are_accepted_and_follow_normal_retention() {
+    let directory = TestDir::new();
+    let path = directory.rollout();
+    let meta = metadata(directory.session_id());
+    let old_usage = record("token_usage_record", "{\"usage\":{\"total_tokens\":1}}");
+    let checkpoint = compacted("synthetic", 1);
+    let retained_usage = record(
+        "token_usage_record",
+        "{\"turn_id\":\"turn-1\",\"usage\":{\"total_tokens\":2}}",
+    );
+
+    let mut input = meta.clone();
+    input.extend(old_usage);
+    input.extend_from_slice(&checkpoint);
+    append_records(&mut input, completed_user_turn("turn-1"));
+    input.extend_from_slice(&retained_usage);
+
+    let mut expected = meta;
+    expected.extend(checkpoint);
+    append_records(&mut expected, completed_user_turn("turn-1"));
+    expected.extend(retained_usage);
+    fs::write(&path, input).expect("fixture write should succeed");
+
+    let output = run(&[
+        "--json",
+        "trim",
+        "--no-backup",
+        path.to_str().expect("test path should be UTF-8"),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(json(&output)["status"], "trimmed");
+    assert_eq!(fs::read(&path).expect("source should be trimmed"), expected);
+}
+
+#[test]
 fn dry_run_reports_plan_without_files_or_signals() {
     let directory = TestDir::new();
     let path = directory.rollout();

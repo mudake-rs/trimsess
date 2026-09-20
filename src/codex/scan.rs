@@ -140,6 +140,7 @@ fn apply_record_policy(
             let _: WorldStatePayload =
                 record::parse_payload(envelope.payload, envelope.record_type, record_number, path)?;
         }
+        RecordType::TokenUsageRecord => {}
     }
     Ok(())
 }
